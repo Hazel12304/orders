@@ -81,7 +81,10 @@ def _parse_int_param(name):
     try:
         return int(value)
     except ValueError:
-        abort(status.HTTP_400_BAD_REQUEST, f"Invalid query parameter: '{name}' must be an integer")
+        abort(
+            status.HTTP_400_BAD_REQUEST,
+            f"Invalid query parameter: '{name}' must be an integer",
+        )
 
 
 def _parse_float_param(name):
@@ -92,7 +95,10 @@ def _parse_float_param(name):
     try:
         return float(value)
     except ValueError:
-        abort(status.HTTP_400_BAD_REQUEST, f"Invalid query parameter: '{name}' must be a number")
+        abort(
+            status.HTTP_400_BAD_REQUEST,
+            f"Invalid query parameter: '{name}' must be a number",
+        )
 
 
 def _parse_date_param(name):
@@ -103,7 +109,10 @@ def _parse_date_param(name):
     try:
         return datetime.fromisoformat(value)
     except ValueError:
-        abort(status.HTTP_400_BAD_REQUEST, f"Invalid query parameter: '{name}' must be ISO 8601 format")
+        abort(
+            status.HTTP_400_BAD_REQUEST,
+            f"Invalid query parameter: '{name}' must be ISO 8601 format",
+        )
 
 
 def _apply_filters(query):
@@ -154,9 +163,13 @@ def list_orders():
     limit = _parse_int_param("limit")
 
     if page is not None and page < 1:
-        abort(status.HTTP_400_BAD_REQUEST, "Invalid query parameter: 'page' must be >= 1")
+        abort(
+            status.HTTP_400_BAD_REQUEST, "Invalid query parameter: 'page' must be >= 1"
+        )
     if limit is not None and limit < 1:
-        abort(status.HTTP_400_BAD_REQUEST, "Invalid query parameter: 'limit' must be >= 1")
+        abort(
+            status.HTTP_400_BAD_REQUEST, "Invalid query parameter: 'limit' must be >= 1"
+        )
 
     query = _apply_filters(Order.query)
 
@@ -167,13 +180,18 @@ def list_orders():
         results = [order.serialize() for order in orders]
 
         app.logger.info("Returning page %d of %d orders", page, total_count)
-        return jsonify({
-            "results": results,
-            "page": page,
-            "limit": limit,
-            "totalCount": total_count,
-            "totalPages": total_pages,
-        }), status.HTTP_200_OK
+        return (
+            jsonify(
+                {
+                    "results": results,
+                    "page": page,
+                    "limit": limit,
+                    "totalCount": total_count,
+                    "totalPages": total_pages,
+                }
+            ),
+            status.HTTP_200_OK,
+        )
 
     orders = query.all()
     results = [order.serialize() for order in orders]
@@ -201,9 +219,7 @@ def create_order():
     order.create()
     app.logger.info("Order with new id [%s] saved!", order.id)
 
-    location_url = url_for(
-        "get_orders", order_id=order.id, _external=True
-    )
+    location_url = url_for("get_orders", order_id=order.id, _external=True)
     return (
         jsonify(order.serialize()),
         status.HTTP_201_CREATED,
@@ -235,19 +251,34 @@ def get_orders(order_id):
 @app.route("/orders/<int:order_id>", methods=["PUT"])
 def update_orders(order_id):
     """
-    Update an Order
+    Update the top-level fields of an Order.
 
-    This endpoint will update an Order based on its id
+    Order items must be updated through the item sub-resource endpoint.
     """
     app.logger.info("Request to Update an order with id [%s]", order_id)
     check_content_type("application/json")
 
     order = Order.find(order_id)
     if not order:
-        abort(status.HTTP_404_NOT_FOUND, f"Order with id '{order_id}' was not found.")
+        abort(
+            status.HTTP_404_NOT_FOUND,
+            f"Order with id '{order_id}' was not found.",
+        )
 
-    data = request.get_json()
-    app.logger.info("Processing: %s", data)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not data:
+        abort(
+            status.HTTP_400_BAD_REQUEST,
+            "Request body must be a non-empty JSON object.",
+        )
+
+    if "items" in data:
+        abort(
+            status.HTTP_400_BAD_REQUEST,
+            "Order items must be updated through the order items endpoint.",
+        )
+
+    app.logger.info("Processing order update: %s", data)
 
     new_status = data.get("status")
     if new_status and new_status != order.status:
@@ -260,6 +291,7 @@ def update_orders(order_id):
 
     order.deserialize(data)
     order.update()
+
     app.logger.info("Order with id [%s] updated.", order_id)
     return jsonify(order.serialize()), status.HTTP_200_OK
 
@@ -274,9 +306,7 @@ def get_order_item(order_id, item_id):
 
     This endpoint will return an Item from an Order based on their ids
     """
-    app.logger.info(
-        "Request to Read item %s in order %s", item_id, order_id
-    )
+    app.logger.info("Request to Read item %s in order %s", item_id, order_id)
 
     order = Order.find(order_id)
     if not order:
@@ -306,9 +336,7 @@ def update_order_item(order_id, item_id):
 
     This endpoint will update an Item in an Order based on their ids
     """
-    app.logger.info(
-        "Request to Update item %s in order %s", item_id, order_id
-    )
+    app.logger.info("Request to Update item %s in order %s", item_id, order_id)
     check_content_type("application/json")
 
     order = Order.find(order_id)
@@ -349,7 +377,9 @@ ACTION_MAP = {
 @app.route("/orders/<int:order_id>/actions/<action_name>", methods=["POST"])
 def order_action(order_id, action_name):
     """Trigger a named action on an Order"""
-    app.logger.info("Request to trigger action '%s' on order [%s]", action_name, order_id)
+    app.logger.info(
+        "Request to trigger action '%s' on order [%s]", action_name, order_id
+    )
 
     if action_name not in ACTION_MAP:
         abort(status.HTTP_404_NOT_FOUND, f"Action '{action_name}' not found.")
@@ -368,7 +398,12 @@ def order_action(order_id, action_name):
 
     order.status = target_status
     order.update()
-    app.logger.info("Order [%s] transitioned to '%s' via action '%s'.", order_id, target_status, action_name)
+    app.logger.info(
+        "Order [%s] transitioned to '%s' via action '%s'.",
+        order_id,
+        target_status,
+        action_name,
+    )
     return jsonify(order.serialize()), status.HTTP_200_OK
 
 
@@ -411,9 +446,7 @@ def check_content_type(content_type) -> None:
     if request.headers["Content-Type"] == content_type:
         return
 
-    app.logger.error(
-        "Invalid Content-Type: %s", request.headers["Content-Type"]
-    )
+    app.logger.error("Invalid Content-Type: %s", request.headers["Content-Type"])
     abort(
         status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
         f"Content-Type must be {content_type}",
@@ -427,9 +460,7 @@ def delete_order(order_id):
 
     This endpoint will delete a Order based the id specified in the path
     """
-    app.logger.info(
-        "Request to Delete a order with id [%s]", order_id
-    )
+    app.logger.info("Request to Delete a order with id [%s]", order_id)
 
     order = Order.find(order_id)
     if order:
@@ -450,9 +481,7 @@ def delete_item(order_id, item_id):
 
     This endpoint will delete an Item from an Order based on the order id and item id
     """
-    app.logger.info(
-        "Request to Delete Item %d from Order %d", item_id, order_id
-    )
+    app.logger.info("Request to Delete Item %d from Order %d", item_id, order_id)
 
     order = Order.find(order_id)
     if not order:
@@ -478,4 +507,9 @@ def delete_item(order_id, item_id):
 
     item.delete()
     app.logger.info("Item with ID: %d deleted from Order %d.", item_id, order_id)
-    return jsonify(message=f"Item with id '{item_id}' has been deleted from order '{order_id}'."), status.HTTP_200_OK
+    return (
+        jsonify(
+            message=f"Item with id '{item_id}' has been deleted from order '{order_id}'."
+        ),
+        status.HTTP_200_OK,
+    )
