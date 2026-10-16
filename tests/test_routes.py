@@ -110,8 +110,12 @@ class OrderService(TestCase):
         self.assertEqual(data["paths"]["update_order"], "PUT /orders/{id}")
         self.assertEqual(data["paths"]["delete_order"], "DELETE /orders/{id}")
         self.assertEqual(data["paths"]["get_item"], "GET /orders/{id}/items/{item_id}")
-        self.assertEqual(data["paths"]["update_item"], "PUT /orders/{id}/items/{item_id}")
-        self.assertEqual(data["paths"]["delete_item"], "DELETE /orders/{id}/items/{item_id}")
+        self.assertEqual(
+            data["paths"]["update_item"], "PUT /orders/{id}/items/{item_id}"
+        )
+        self.assertEqual(
+            data["paths"]["delete_item"], "DELETE /orders/{id}/items/{item_id}"
+        )
 
     def test_list_orders(self):
         """It should return a list of all Orders"""
@@ -178,28 +182,32 @@ class OrderService(TestCase):
         self.assertIn("was not found", data["message"])
 
     def test_update_order(self):
-        """It should Update an existing Order and return 200"""
+        """It should update an existing Order and return 200"""
         test_order = OrderFactory()
         test_order.create()
 
+        new_customer_id = test_order.customer_id + 1
         updated_data = {
-            "customer_id": test_order.customer_id,
-            "name": "Updated Name",
+            "customer_id": new_customer_id,
+            "name": test_order.name,
             "address": test_order.address,
             "email": test_order.email,
         }
+
         response = self.client.put(
             f"{BASE_URL}/{test_order.id}",
             json=updated_data,
             content_type="application/json",
         )
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.is_json)
+
         data = response.get_json()
-        self.assertEqual(data["name"], "Updated Name")
         self.assertEqual(data["id"], test_order.id)
+        self.assertEqual(data["customer_id"], new_customer_id)
 
     def test_update_order_with_items(self):
-        """It should Update an Order with items and return 200"""
         test_order = OrderFactory()
         test_order.create()
 
@@ -218,11 +226,10 @@ class OrderService(TestCase):
             json=updated_data,
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(response.is_json)
         data = response.get_json()
-        self.assertEqual(len(data["items"]), 1)
-        self.assertEqual(data["items"][0]["name"], item.name)
-        self.assertEqual(data["items"][0]["quantity"], item.quantity)
+        self.assertIn("items", data["message"].lower())
 
     def test_update_order_not_found(self):
         """It should return 404 when updating an Order that does not exist"""
@@ -369,7 +376,9 @@ class OrderService(TestCase):
             OrderFactory(status="Pending", customer_id=10).create()
         OrderFactory(status="Shipped", customer_id=10).create()
 
-        response = self.client.get(f"{BASE_URL}?status=Pending&customer_id=10&page=1&limit=2")
+        response = self.client.get(
+            f"{BASE_URL}?status=Pending&customer_id=10&page=1&limit=2"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.get_json()
         self.assertEqual(data["totalCount"], 4)
@@ -611,6 +620,7 @@ class OrderService(TestCase):
         orders = self._create_orders(1)
         order = orders[0]
         payload = order.serialize()
+        payload.pop("items", None)
         payload["status"] = "Paid"
         response = self.client.put(f"{BASE_URL}/{order.id}", json=payload)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -621,6 +631,7 @@ class OrderService(TestCase):
         order = OrderFactory(status="Paid")
         order.create()
         payload = order.serialize()
+        payload.pop("items", None)
         payload["status"] = "Shipped"
         response = self.client.put(f"{BASE_URL}/{order.id}", json=payload)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -631,6 +642,7 @@ class OrderService(TestCase):
         orders = self._create_orders(1)
         order = orders[0]
         payload = order.serialize()
+        payload.pop("items", None)
         payload["status"] = "Shipped"
         response = self.client.put(f"{BASE_URL}/{order.id}", json=payload)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -640,6 +652,7 @@ class OrderService(TestCase):
         order = OrderFactory(status="Cancelled")
         order.create()
         payload = order.serialize()
+        payload.pop("items", None)
         payload["status"] = "Pending"
         response = self.client.put(f"{BASE_URL}/{order.id}", json=payload)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -649,6 +662,7 @@ class OrderService(TestCase):
         order = OrderFactory(status="Shipped")
         order.create()
         payload = order.serialize()
+        payload.pop("items", None)
         payload["status"] = "Paid"
         response = self.client.put(f"{BASE_URL}/{order.id}", json=payload)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -657,6 +671,7 @@ class OrderService(TestCase):
         """It should return 400 when creating an order with an invalid status"""
         order = OrderFactory()
         payload = order.serialize()
+        payload.pop("items", None)
         payload["status"] = "InvalidStatus"
         response = self.client.post(BASE_URL, json=payload)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -666,6 +681,7 @@ class OrderService(TestCase):
         orders = self._create_orders(1)
         order = orders[0]
         payload = order.serialize()
+        payload.pop("items", None)
         payload["status"] = "Bogus"
         response = self.client.put(f"{BASE_URL}/{order.id}", json=payload)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -698,9 +714,7 @@ class OrderService(TestCase):
         """It should Read an Item from an Order"""
         order, item = self._create_order_with_item()
 
-        response = self.client.get(
-            f"{BASE_URL}/{order.id}/items/{item.id}"
-        )
+        response = self.client.get(f"{BASE_URL}/{order.id}/items/{item.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.get_json()
         self.assertEqual(data["id"], item.id)
@@ -732,9 +746,7 @@ class OrderService(TestCase):
         order2 = OrderFactory()
         order2.create()
 
-        response = self.client.get(
-            f"{BASE_URL}/{order2.id}/items/{item.id}"
-        )
+        response = self.client.get(f"{BASE_URL}/{order2.id}/items/{item.id}")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     ######################################################################
@@ -833,7 +845,9 @@ class OrderService(TestCase):
         test_item = ItemFactory(order_id=test_order.id)
         test_item.create()
 
-        response = self.client.delete(f"{BASE_URL}/{test_order.id}/items/{test_item.id}")
+        response = self.client.delete(
+            f"{BASE_URL}/{test_order.id}/items/{test_item.id}"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.get_json()
         self.assertIn("deleted", data["message"])
@@ -847,7 +861,9 @@ class OrderService(TestCase):
         test_item = ItemFactory(order_id=test_order.id)
         test_item.create()
 
-        response = self.client.delete(f"{BASE_URL}/{test_order.id}/items/{test_item.id}")
+        response = self.client.delete(
+            f"{BASE_URL}/{test_order.id}/items/{test_item.id}"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.get_json()
         self.assertIn("deleted", data["message"])
@@ -874,7 +890,9 @@ class OrderService(TestCase):
         test_item = ItemFactory(order_id=test_order.id)
         test_item.create()
 
-        response = self.client.delete(f"{BASE_URL}/{test_order.id}/items/{test_item.id}")
+        response = self.client.delete(
+            f"{BASE_URL}/{test_order.id}/items/{test_item.id}"
+        )
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
 
     ######################################################################
